@@ -267,7 +267,20 @@ if (!DEMO_MODE) {
 
 // ─── SIDEBAR ────────────────────────────────────────────────────────────────
 
+function renderTopbarIntroToggle() {
+  const el = document.getElementById('topbar-intro-toggle');
+  if (!el) return;
+  if (!isAdmin()) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <label class="toggle-switch" style="margin-right:12px;">
+      <input type="checkbox" ${demoStore.introActief ? 'checked' : ''} onchange="toggleAppInstelling('introActief', this.checked)">
+      <div class="toggle-track"></div>
+      <span style="color:#fff;">👥 Introperiode actief</span>
+    </label>`;
+}
+
 function renderSidebar() {
+  renderTopbarIntroToggle();
   const sidebar = document.getElementById('sidebar');
   const rol = currentUserData ? currentUserData.rol : 'lid';
   const kandidatenZichtbaar = isAdmin() || demoStore.kandidatenZichtbaar;
@@ -2314,28 +2327,22 @@ function renderGebruikersbeheer(el) {
     <!-- App Instellingen -->
     <div class="card" style="margin-bottom:20px;">
       <div class="card-header"><h3>⚙️ App Instellingen</h3></div>
-      <div style="display:flex;flex-wrap:wrap;gap:20px;padding:8px 0 16px;">
-        <label class="toggle-switch">
-          <input type="checkbox" ${demoStore.introActief ? 'checked' : ''} onchange="toggleAppInstelling('introActief', this.checked)">
-          <div class="toggle-track"></div>
-          <span>👥 Introperiode actief</span>
-        </label>
-      </div>
-      <div style="padding-top:16px;border-top:1px solid var(--grijs);display:flex;gap:24px;flex-wrap:wrap;">
+      <div style="display:flex;gap:24px;flex-wrap:nowrap;overflow-x:auto;">
         ${['moneyManUid', 'praesesUid', 'smQueenUid'].map(sleutel => {
           const { label, emoji } = ROL_TITELS[sleutel];
           const huidigeUid = demoStore[sleutel];
           return `
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <div style="font-size:13px;font-weight:600;color:var(--zwart);">${emoji} ${label}</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;white-space:nowrap;">
+          <span style="font-size:26px;line-height:1;">${emoji}</span>
+          <span style="font-size:13px;font-weight:600;color:var(--zwart);">${label}</span>
           <select id="rol-select-${sleutel}" onchange="selectRolDrager('${sleutel}', this.value)"
-            style="padding:8px 12px;border:1.5px solid var(--grijs);border-radius:4px;font-family:'Inter',sans-serif;font-size:13px;min-width:200px;">
+            style="padding:8px 12px;border:1.5px solid var(--grijs);border-radius:4px;font-family:'Inter',sans-serif;font-size:13px;min-width:170px;">
             <option value="">— Niemand geselecteerd —</option>
             ${Object.values(demoStore.users).map(u =>
               `<option value="${u.uid || u.username}" ${huidigeUid === (u.uid || u.username) ? 'selected' : ''}>${u.displayName} (@${u.username || u.email.replace('@borsa.intern','')})</option>`
             ).join('')}
           </select>
-          ${huidigeUid ? `<button class="btn btn-outline btn-sm" onclick="selectRolDrager('${sleutel}', '')">Deselecteren</button>` : ''}
+          ${huidigeUid ? `<button class="btn btn-danger btn-sm" title="Deselecteren" style="padding:3px 8px;font-size:12px;" onclick="selectRolDrager('${sleutel}', '')">✕</button>` : ''}
         </div>`;
         }).join('')}
       </div>
