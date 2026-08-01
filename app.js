@@ -35,14 +35,9 @@ let demoStore = {
   stemmenOpen: true,
   stemDeadline: null,
   introActief: false,
-  competitieActief: false,
-  portfolioWeken: [],        // [{datum, totaalWaarde, posities:[{naam,waarde,pct}], benchmarkWaarde, cashflow}]
   moneyManUid: null,
-  portfolioInstellingen: {
-    startKapitaal: 0,
-    risicoVrijRente: 0.025,  // 9-maands Duitse staatsobligatie yield (handmatig in te stellen)
-    benchmarkNaam: 'iShares MSCI World EUR Hedged'
-  },
+  praesesUid: null,
+  smQueenUid: null,
   bonnetjes: [],
   adminProjects: {},
   reiscoProjects: {},
@@ -213,11 +208,9 @@ function onLoginSuccess(user) {
     }
     if (appSnap && appSnap.exists) {
       demoStore.introActief = appSnap.data().introActief === true;
-      demoStore.competitieActief = appSnap.data().competitieActief === true;
       demoStore.moneyManUid = appSnap.data().moneyManUid || null;
-      if (appSnap.data().portfolioInstellingen) {
-        demoStore.portfolioInstellingen = { ...demoStore.portfolioInstellingen, ...appSnap.data().portfolioInstellingen };
-      }
+      demoStore.praesesUid = appSnap.data().praesesUid || null;
+      demoStore.smQueenUid = appSnap.data().smQueenUid || null;
     }
   }).catch(() => {
     // Instellingen bestaan nog niet — gebruik defaults (false)
@@ -305,13 +298,6 @@ function renderSidebar() {
       </div>`;
   }
 
-  if (demoStore.competitieActief || isAdmin()) {
-    html += `
-      <div class="nav-item" onclick="navigateTo('portfolio')" data-page="portfolio">
-        <span class="nav-icon">📈</span> Portfolio Tracker
-      </div>`;
-  }
-
   if (isAdmin()) {
     html += `
       </div>
@@ -374,7 +360,6 @@ function navigateTo(page) {
     'reisco-board': renderReiscoBoard,
     'admin-docs': renderAdminDocs,
     budget: renderBudget,
-    portfolio: renderPortfolio,
     gebruikersbeheer: renderGebruikersbeheer
   };
 
@@ -440,14 +425,13 @@ function renderHome(el) {
           </div>
         </div>` : ''}
 
-        ${demoStore.competitieActief || isAdmin() ? `
-        <div class="card" onclick="navigateTo('portfolio')" style="cursor:pointer;padding:16px;display:flex;align-items:center;gap:12px;border-left:4px solid #27ae60;margin:0;">
-          <span style="font-size:22px;">📈</span>
+        <div class="card" onclick="navigateTo('planning')" style="cursor:pointer;padding:16px;display:flex;align-items:center;gap:12px;border-left:4px solid #27ae60;margin:0;">
+          <span style="font-size:22px;">📅</span>
           <div>
-            <div style="font-weight:700;font-size:14px;color:var(--groen);">Portfolio Tracker</div>
-            <div style="font-size:11px;color:var(--grijs-donker);">Beleggingscompetitie</div>
+            <div style="font-weight:700;font-size:14px;color:var(--groen);">Planning</div>
+            <div style="font-size:11px;color:var(--grijs-donker);">Vergaderplanning</div>
           </div>
-        </div>` : ''}
+        </div>
 
         <div class="card" onclick="navigateTo('leden')" style="cursor:pointer;padding:16px;display:flex;align-items:center;gap:12px;border-left:4px solid var(--groen-licht);margin:0;">
           <span style="font-size:22px;">🪪</span>
@@ -2112,516 +2096,23 @@ function deleteProject(id, boardKey, mapNaam) {
   });
 }
 
-// ─── PAGE: PORTFOLIO TRACKER ──────────────────────────────────────────────────
+const ROL_TITELS = {
+  moneyManUid: { label: 'Moneyman / Moneywoman', emoji: '💸' },
+  praesesUid: { label: 'Praeses', emoji: '👑' },
+  smQueenUid: { label: 'Social Media Queen', emoji: '📸' }
+};
 
-function renderPortfolio(el) {
-  el.innerHTML = `
-    <div class="page-header">
-      <div><h2>📈 Portfolio Tracker</h2><p>Borsa Valori — Beleggingscompetitie ${new Date().getFullYear()}</p></div>
-      ${isMoneyman() ? `<button class="btn btn-primary btn-sm" onclick="openNieuweWeekModal()">+ Week invoeren</button>` : ''}
-    </div>
-    <div id="portfolio-content"><div class="loading">Even laden...</div></div>
-  `;
-  laadPortfolioData();
-}
-
-function laadPortfolioData() {
-  if (DEMO_MODE) {
-    renderPortfolioContent(demoStore.portfolioWeken);
-    return;
-  }
-  db.collection('portfolioWeken').orderBy('datum', 'asc').get()
-    .then(snap => {
-      const weken = [];
-      snap.forEach(doc => weken.push({ firestoreId: doc.id, ...doc.data() }));
-      demoStore.portfolioWeken = weken;
-      renderPortfolioContent(weken);
-    })
-    .catch(e => {
-      const el = document.getElementById('portfolio-content');
-      if (el) el.innerHTML = `<div class="alert alert-error">Fout: ${e.message}</div>`;
-    });
-}
-
-// ─── BEREKENINGEN ────────────────────────────────────────────────────────────
-
-function berekenPortfolioStats(weken) {
-  if (!weken || weken.length === 0) return null;
-
-  const inst = demoStore.portfolioInstellingen;
-  const startKap = parseFloat(inst.startKapitaal) || 1;
-  const rfJaar = parseFloat(inst.risicoVrijRente) || 0.025;
-  const rfWeek = Math.pow(1 + rfJaar, 1/52) - 1;
-
-  // Wekelijkse returns berekenen
-  const weekReturns = [];
-  const benchmarkReturns = [];
-
-  for (let i = 0; i < weken.length; i++) {
-    const w = weken[i];
-    if (i === 0) {
-      const r = (w.totaalWaarde - startKap) / startKap;
-      weekReturns.push(r);
-    } else {
-      const prev = weken[i-1];
-      const r = (w.totaalWaarde - (w.cashflow || 0) - prev.totaalWaarde) / prev.totaalWaarde;
-      weekReturns.push(r);
-    }
-    if (w.benchmarkWaarde && i > 0) {
-      const prevB = weken[i-1].benchmarkWaarde;
-      if (prevB) benchmarkReturns.push((w.benchmarkWaarde - prevB) / prevB);
-    }
-  }
-
-  // Cumulatieve return
-  const totalReturn = weken.length > 0
-    ? (weken[weken.length-1].totaalWaarde - startKap) / startKap
-    : 0;
-
-  const prevReturn = weken.length > 1
-    ? (weken[weken.length-2].totaalWaarde - startKap) / startKap
-    : 0;
-
-  const changeReturn = totalReturn - prevReturn;
-
-  // Volatility (std dev van weekly excess returns)
-  const excessReturns = weekReturns.map(r => r - rfWeek);
-  const meanExcess = excessReturns.reduce((a,b) => a+b, 0) / Math.max(excessReturns.length, 1);
-  const variance = excessReturns.reduce((a,b) => a + Math.pow(b - meanExcess, 2), 0) / Math.max(excessReturns.length - 1, 1);
-  const volatility = Math.sqrt(variance);
-
-  // Benchmark stats
-  const benchExcess = benchmarkReturns.map(r => r - rfWeek);
-  const benchMean = benchExcess.reduce((a,b) => a+b, 0) / Math.max(benchExcess.length, 1);
-  const benchVar = benchExcess.reduce((a,b) => a + Math.pow(b - benchMean, 2), 0) / Math.max(benchExcess.length - 1, 1);
-  const benchVol = Math.sqrt(benchVar);
-
-  // Cumulatieve risk-free rate
-  const nWeken = weken.length;
-  const rfCumul = Math.pow(1 + rfWeek, nWeken) - 1;
-
-  // Capped M2 (risk-adjusted return)
-  const floor = 0.002;
-  const cap = 3;
-  const volCapped = Math.max(volatility, floor);
-  const benchVolCapped = Math.max(benchVol, floor);
-  const excessPortfolio = totalReturn - rfCumul;
-  const m2Raw = rfCumul + (excessPortfolio / volCapped) * benchVolCapped;
-  const m2 = Math.min(m2Raw, rfCumul + cap * benchVolCapped);
-
-  // Vorige week M2
-  const prevM2 = weken.length > 1 ? berekenM2VorigeWeek(weken.slice(0, -1), rfWeek, startKap) : 0;
-  const changeM2 = m2 - prevM2;
-
-  // Benchmark total return
-  const benchTotalReturn = weken.length > 0 && weken[0].benchmarkWaarde && weken[weken.length-1].benchmarkWaarde
-    ? (weken[weken.length-1].benchmarkWaarde - weken[0].benchmarkWaarde) / weken[0].benchmarkWaarde
-    : null;
-
-  return { totalReturn, changeReturn, volatility, m2, changeM2, benchTotalReturn, weekReturns, weken, startKap };
-}
-
-function berekenM2VorigeWeek(weken, rfWeek, startKap) {
-  if (weken.length === 0) return 0;
-  const floor = 0.002; const cap = 3;
-  const excessReturns = weken.map((w, i) => {
-    const r = i === 0 ? (w.totaalWaarde - startKap) / startKap
-      : (w.totaalWaarde - (w.cashflow || 0) - weken[i-1].totaalWaarde) / weken[i-1].totaalWaarde;
-    return r - rfWeek;
-  });
-  const mean = excessReturns.reduce((a,b) => a+b,0) / Math.max(excessReturns.length,1);
-  const vol = Math.sqrt(excessReturns.reduce((a,b) => a + Math.pow(b-mean,2),0) / Math.max(excessReturns.length-1,1));
-
-  // Gebruik echte benchmarkdata als beschikbaar, anders gebruik portfolio vol als proxy
-  const benchReturns = [];
-  for (let i = 1; i < weken.length; i++) {
-    if (weken[i].benchmarkWaarde && weken[i-1].benchmarkWaarde) {
-      benchReturns.push((weken[i].benchmarkWaarde - weken[i-1].benchmarkWaarde) / weken[i-1].benchmarkWaarde - rfWeek);
-    }
-  }
-  const benchVol = benchReturns.length > 1
-    ? Math.sqrt(benchReturns.reduce((a,b) => a + Math.pow(b,2), 0) / benchReturns.length)
-    : Math.max(vol * 0.8, floor);
-
-  const rfCumul = Math.pow(1+rfWeek, weken.length) - 1;
-  const totalReturn = (weken[weken.length-1].totaalWaarde - startKap) / startKap;
-  const excess = totalReturn - rfCumul;
-  const volCapped = Math.max(vol, floor);
-  return Math.min(rfCumul + (excess / volCapped) * Math.max(benchVol, floor), rfCumul + cap * Math.max(benchVol, floor));
-}
-
-// ─── RENDER PORTFOLIO CONTENT ────────────────────────────────────────────────
-
-function renderPortfolioContent(weken) {
-  const el = document.getElementById('portfolio-content');
-  if (!el) return;
-
-  if (weken.length === 0) {
-    el.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">📈</div>
-        <p>Nog geen weekdata ingevoerd.</p>
-        ${isAdmin() ? `<button class="btn btn-primary" style="margin-top:16px;" onclick="openNieuweWeekModal()">+ Eerste week invoeren</button>` : ''}
-      </div>`;
-    return;
-  }
-
-  const stats = berekenPortfolioStats(weken);
-  const laatste = weken[weken.length - 1];
-  const inst = demoStore.portfolioInstellingen;
-
-  // Kleur helpers
-  const kleur = (n) => n >= 0 ? '#27ae60' : '#e74c3c';
-  const pct = (n, d=2) => (n >= 0 ? '+' : '') + (n * 100).toFixed(d) + '%';
-
-  // Beste en slechtste positie deze week
-  const posities = laatste.posities || [];
-  const gesorteerd = [...posities].sort((a,b) => (b.weekRendement||0) - (a.weekRendement||0));
-  const beste = gesorteerd[0];
-  const slechtste = gesorteerd[gesorteerd.length-1];
-
-  // Mini-grafiek data (SVG sparkline)
-  const grafiekWaarden = weken.map(w => w.totaalWaarde);
-  const minW = Math.min(...grafiekWaarden);
-  const maxW = Math.max(...grafiekWaarden);
-  const range = maxW - minW || 1;
-  const W = 300, H = 60;
-  const punten = grafiekWaarden.map((v, i) => {
-    const x = (i / Math.max(grafiekWaarden.length - 1, 1)) * W;
-    const y = H - ((v - minW) / range) * H;
-    return `${x},${y}`;
-  }).join(' ');
-
-  // Benchmark grafiek
-  const benchWaarden = weken.filter(w => w.benchmarkWaarde).map(w => w.benchmarkWaarde);
-  let benchLijn = '';
-  if (benchWaarden.length > 1) {
-    const minB = Math.min(...benchWaarden), maxB = Math.max(...benchWaarden);
-    const rangeB = maxB - minB || 1;
-    const benchPunten = benchWaarden.map((v, i) => {
-      const x = (i / Math.max(benchWaarden.length - 1, 1)) * W;
-      const y = H - ((v - minB) / rangeB) * H;
-      return `${x},${y}`;
-    }).join(' ');
-    benchLijn = `<polyline points="${benchPunten}" fill="none" stroke="#aaa" stroke-width="1.5" stroke-dasharray="4,2"/>`;
-  }
-
-  el.innerHTML = `
-    <!-- KPI KAARTEN -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:20px;">
-      <div class="card" style="margin:0;border-top:4px solid var(--groen);text-align:center;">
-        <div style="font-size:24px;font-weight:700;color:${kleur(stats.totalReturn)};">${pct(stats.totalReturn)}</div>
-        <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--grijs-donker);margin-top:4px;">Total Return</div>
-        <div style="font-size:12px;color:${kleur(stats.changeReturn)};margin-top:6px;display:flex;align-items:center;justify-content:center;gap:3px;">
-          <span>${stats.changeReturn >= 0 ? '▲' : '▼'}</span>
-          <span>${pct(Math.abs(stats.changeReturn))} t.o.v. vorige week</span>
-        </div>
-      </div>
-      <div class="card" style="margin:0;border-top:4px solid var(--goud);text-align:center;">
-        <div style="font-size:24px;font-weight:700;color:${kleur(stats.m2)};">${pct(stats.m2)}</div>
-        <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--grijs-donker);margin-top:4px;">Risk-Adj. Return (M²)</div>
-        <div style="font-size:12px;color:${kleur(stats.changeM2)};margin-top:6px;display:flex;align-items:center;justify-content:center;gap:3px;">
-          <span>${stats.changeM2 >= 0 ? '▲' : '▼'}</span>
-          <span>${pct(Math.abs(stats.changeM2))} t.o.v. vorige week</span>
-        </div>
-      </div>
-      <div class="card" style="margin:0;border-top:4px solid var(--oranje);text-align:center;">
-        <div style="font-size:24px;font-weight:700;color:var(--oranje);">${(stats.volatility * 100).toFixed(3)}%</div>
-        <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--grijs-donker);margin-top:4px;">Volatiliteit (wekelijks)</div>
-        <div style="font-size:12px;color:var(--grijs-donker);margin-top:6px;">Lager = minder risico</div>
-      </div>
-      ${stats.benchTotalReturn !== null ? `
-      <div class="card" style="margin:0;border-top:4px solid #888;text-align:center;">
-        <div style="font-size:24px;font-weight:700;color:${kleur(stats.benchTotalReturn)};">${pct(stats.benchTotalReturn)}</div>
-        <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--grijs-donker);margin-top:4px;">Benchmark Return</div>
-        <div style="font-size:12px;color:${kleur(stats.totalReturn - stats.benchTotalReturn)};margin-top:6px;font-weight:700;">
-          Alpha: ${pct(stats.totalReturn - stats.benchTotalReturn)}
-        </div>
-      </div>` : ''}
-      <div class="card" style="margin:0;border-top:4px solid var(--groen-licht);text-align:center;">
-        <div style="font-size:24px;font-weight:700;color:var(--groen);">€ ${laatste.totaalWaarde.toLocaleString('nl-NL', {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
-        <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--grijs-donker);margin-top:4px;">Portefeuillewaarde</div>
-        <div style="font-size:12px;color:var(--grijs-donker);margin-top:6px;">${new Date(laatste.datum).toLocaleDateString('nl-NL', {weekday:'short', day:'numeric', month:'short'})}</div>
-      </div>
-    </div>
-
-    <!-- GRAFIEK + POSITIES NAAST ELKAAR -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-
-      <!-- Rendement grafiek -->
-      <div class="card" style="margin:0;">
-        <div class="card-header"><h3>Portefeuillewaarde</h3></div>
-        <svg viewBox="0 0 ${W} ${H+10}" style="width:100%;overflow:visible;margin-top:8px;">
-          <polyline points="${punten}" fill="none" stroke="var(--groen)" stroke-width="2.5"/>
-          ${benchLijn}
-          ${grafiekWaarden.map((v, i) => {
-            const x = (i / Math.max(grafiekWaarden.length-1,1)) * W;
-            const y = H - ((v - minW) / range) * H;
-            return `<circle cx="${x}" cy="${y}" r="3" fill="var(--groen)"/>`;
-          }).join('')}
-        </svg>
-        <div style="display:flex;gap:16px;font-size:11px;color:var(--grijs-donker);margin-top:8px;">
-          <span><span style="display:inline-block;width:12px;height:2px;background:var(--groen);vertical-align:middle;margin-right:4px;"></span>Borsa Valori</span>
-          ${benchWaarden.length > 1 ? `<span><span style="display:inline-block;width:12px;height:2px;background:#aaa;vertical-align:middle;margin-right:4px;border-top:2px dashed #aaa;"></span>Benchmark</span>` : ''}
-        </div>
-      </div>
-
-      <!-- Huidige posities -->
-      <div class="card" style="margin:0;">
-        <div class="card-header">
-          <h3>Holdings (${new Date(laatste.datum).toLocaleDateString('nl-NL')})</h3>
-        </div>
-        ${posities.length === 0
-          ? '<div class="empty-state" style="padding:16px;"><p>Geen posities ingevoerd.</p></div>'
-          : `<div style="max-height:250px;overflow-y:auto;">
-            ${posities.map(p => `
-              <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--grijs);">
-                <div style="width:36px;height:36px;border-radius:50%;background:var(--groen);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;color:white;flex-shrink:0;">${(p.naam||'?').substring(0,2).toUpperCase()}</div>
-                <div style="flex:1;min-width:0;">
-                  <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.naam}</div>
-                  <div style="font-size:11px;color:var(--grijs-donker);">${p.pct || ''}%</div>
-                </div>
-                <div style="text-align:right;">
-                  <div style="font-size:13px;font-weight:600;">€ ${parseFloat(p.waarde||0).toFixed(2)}</div>
-                  ${p.weekRendement !== undefined ? `<div style="font-size:11px;color:${kleur(p.weekRendement)};">${pct(p.weekRendement/100)}</div>` : ''}
-                </div>
-              </div>`).join('')}
-          </div>`}
-      </div>
-    </div>
-
-    <!-- BESTE/SLECHTSTE POSITIE -->
-    ${beste || slechtste ? `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-      ${beste ? `
-      <div class="card" style="margin:0;border-left:4px solid #27ae60;">
-        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--grijs-donker);margin-bottom:8px;">🏆 Beste Positie</div>
-        <div style="font-size:16px;font-weight:700;">${beste.naam}</div>
-        <div style="font-size:20px;font-weight:700;color:#27ae60;">${beste.weekRendement !== undefined ? pct(beste.weekRendement/100) : '—'}</div>
-      </div>` : ''}
-      ${slechtste && slechtste !== beste ? `
-      <div class="card" style="margin:0;border-left:4px solid #e74c3c;">
-        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--grijs-donker);margin-bottom:8px;">📉 Slechtste Positie</div>
-        <div style="font-size:16px;font-weight:700;">${slechtste.naam}</div>
-        <div style="font-size:20px;font-weight:700;color:#e74c3c;">${slechtste.weekRendement !== undefined ? pct(slechtste.weekRendement/100) : '—'}</div>
-      </div>` : ''}
-    </div>` : ''}
-
-    <!-- MONEYMAN INSTELLINGEN - alleen zichtbaar voor penningmeester -->
-    ${isMoneyman() ? `
-    <div class="card" style="margin:0 0 16px 0;border-left:4px solid var(--goud);">
-      <div class="card-header"><h3>💰 Portfolio Instellingen (Penningmeester)</h3></div>
-      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;padding:8px 0;">
-        <div class="form-group" style="margin:0;flex:1;min-width:180px;">
-          <label>Startkapitaal (€)</label>
-          <input type="number" id="inst-kapitaal" value="${demoStore.portfolioInstellingen.startKapitaal || ''}" placeholder="bijv. 4500"
-            style="width:100%;padding:8px 12px;border:1.5px solid var(--grijs);border-radius:4px;font-family:'Inter',sans-serif;font-size:13px;">
-        </div>
-        <div class="form-group" style="margin:0;flex:1;min-width:180px;">
-          <label>Risicovrije rente (bijv. 0.025 = 2.5%)</label>
-          <input type="number" id="inst-rente" step="0.001" value="${demoStore.portfolioInstellingen.risicoVrijRente || 0.025}" placeholder="0.025"
-            style="width:100%;padding:8px 12px;border:1.5px solid var(--grijs);border-radius:4px;font-family:'Inter',sans-serif;font-size:13px;">
-        </div>
-        <button class="btn btn-goud btn-sm" onclick="slaPortfolioInstellingenOp()">💾 Opslaan</button>
-      </div>
-      <div style="font-size:12px;color:var(--grijs-donker);margin-top:4px;">
-        ⚠️ Alleen jij als Moneyman ziet en kan deze velden aanpassen.
-      </div>
-    </div>` : ''}
-
-        <!-- WEEKHISTORIE TABEL -->
-    <div class="card" style="margin:0;overflow-x:auto;">
-      <div class="card-header">
-        <h3>Weekhistorie</h3>
-      </div>
-      <table class="planning-table" style="min-width:600px;">
-        <thead>
-          <tr>
-            <th>Datum</th>
-            <th>Waarde</th>
-            <th>Week Return</th>
-            <th>Total Return</th>
-            <th>Benchmark</th>
-            <th>M² Return</th>
-            ${isAdmin() ? '<th></th>' : ''}
-          </tr>
-        </thead>
-        <tbody>
-          ${weken.map((w, i) => {
-            const wr = stats.weekReturns[i] || 0;
-            const cumR = (w.totaalWaarde - stats.startKap) / stats.startKap;
-            const weekStats = berekenPortfolioStats(weken.slice(0, i+1));
-            return `<tr>
-              <td style="font-size:13px;">${new Date(w.datum).toLocaleDateString('nl-NL')}</td>
-              <td style="font-size:13px;">€ ${w.totaalWaarde.toLocaleString('nl-NL', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-              <td style="font-size:13px;color:${kleur(wr)};font-weight:600;">${pct(wr)}</td>
-              <td style="font-size:13px;color:${kleur(cumR)};font-weight:600;">${pct(cumR)}</td>
-              <td style="font-size:13px;color:var(--grijs-donker);">${w.benchmarkWaarde ? '€ ' + parseFloat(w.benchmarkWaarde).toFixed(2) : '—'}</td>
-              <td style="font-size:13px;color:${weekStats ? kleur(weekStats.m2) : 'inherit'};font-weight:600;">${weekStats ? pct(weekStats.m2) : '—'}</td>
-              ${isMoneyman() ? `<td><button class="btn btn-danger btn-sm" onclick="deleteWeek('${w.firestoreId || w.id}')">✕</button></td>` : ''}
-            </tr>`;
-          }).reverse().join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-// ─── WEEK INVOER MODAL ───────────────────────────────────────────────────────
-
-function openNieuweWeekModal() {
-  const laatste = demoStore.portfolioWeken[demoStore.portfolioWeken.length - 1];
-  const vorigePosities = laatste ? laatste.posities || [] : [];
-
-  const positiesHTML = vorigePosities.length > 0
-    ? vorigePosities.map((p, i) => positieRijHTML(p.naam, p.waarde, p.pct, p.weekRendement, i)).join('')
-    : positieRijHTML('', '', '', '', 0);
-
-  showModal(`
-    <h3>📈 Week invoeren</h3>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">
-      <div class="form-group" style="margin:0;">
-        <label>Datum (zaterdag)</label>
-        <input type="date" id="week-datum" value="${new Date().toISOString().split('T')[0]}">
-      </div>
-      <div class="form-group" style="margin:0;">
-        <label>Totale portefeuillewaarde (€)</label>
-        <input type="number" id="week-waarde" step="0.01" placeholder="bijv. 4521.33" value="${laatste ? laatste.totaalWaarde : ''}">
-      </div>
-      <div class="form-group" style="margin:0;">
-        <label>Benchmarkwaarde (€ per unit, optioneel)</label>
-        <input type="number" id="week-benchmark" step="0.01" placeholder="bijv. 87.23" value="${laatste ? laatste.benchmarkWaarde || '' : ''}">
-      </div>
-      <div class="form-group" style="margin:0;">
-        <label>Cashflow deze week (€, optioneel)</label>
-        <input type="number" id="week-cashflow" step="0.01" placeholder="0.00" value="0">
-      </div>
-    </div>
-
-    <div style="margin-bottom:12px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <div style="font-weight:700;font-size:13px;">Posities (van Trading212 screenshot)</div>
-        <button class="btn btn-outline btn-sm" onclick="voegPositieToe()">+ Positie toevoegen</button>
-      </div>
-      <!-- Kolomkoppen -->
-      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 28px;gap:8px;margin-bottom:4px;padding:0 2px;">
-        <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--grijs-donker);">Naam</div>
-        <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--grijs-donker);">Waarde €</div>
-        <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--grijs-donker);">% Pie</div>
-        <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--grijs-donker);">Week %</div>
-        <div></div>
-      </div>
-      <div id="posities-lijst">${positiesHTML}</div>
-    </div>
-
-    <div class="modal-footer">
-      <button class="btn btn-outline btn-sm" onclick="closeModal()">Annuleren</button>
-      <button class="btn btn-primary btn-sm" onclick="slaWeekOp()">Opslaan</button>
-    </div>
-  `);
-
-  // Maak de modal breed na renderen
-  const modal = document.querySelector('.modal');
-  if (modal) modal.classList.add('modal-wide');
-}
-
-function positieRijHTML(naam, waarde, pct, weekRend, idx) {
-  return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 28px;gap:8px;margin-bottom:6px;align-items:center;" id="pos-rij-${idx}">
-    <input type="text" placeholder="Naam (bijv. ASML)" value="${naam || ''}" style="padding:7px 10px;border:1.5px solid var(--grijs);border-radius:4px;font-size:13px;font-family:'Inter',sans-serif;width:100%;">
-    <input type="number" step="0.01" placeholder="€" value="${waarde || ''}" style="padding:7px 10px;border:1.5px solid var(--grijs);border-radius:4px;font-size:13px;font-family:'Inter',sans-serif;width:100%;">
-    <input type="number" step="0.1" placeholder="%" value="${pct || ''}" style="padding:7px 10px;border:1.5px solid var(--grijs);border-radius:4px;font-size:13px;font-family:'Inter',sans-serif;width:100%;">
-    <input type="number" step="0.01" placeholder="%" value="${weekRend !== undefined ? weekRend : ''}" style="padding:7px 10px;border:1.5px solid var(--grijs);border-radius:4px;font-size:13px;font-family:'Inter',sans-serif;width:100%;">
-    <button onclick="this.parentElement.remove()" style="background:none;border:none;color:#e74c3c;cursor:pointer;font-size:18px;padding:0;line-height:1;">✕</button>
-  </div>`;
-}
-
-let positieIndex = 10;
-function voegPositieToe() {
-  const lijst = document.getElementById('posities-lijst');
-  if (!lijst) return;
-  const div = document.createElement('div');
-  div.innerHTML = positieRijHTML('', '', '', '', positieIndex++);
-  lijst.appendChild(div.firstElementChild);
-}
-
-function slaWeekOp() {
-  const datum = document.getElementById('week-datum').value;
-  const waarde = parseFloat(document.getElementById('week-waarde').value);
-  const benchmark = parseFloat(document.getElementById('week-benchmark').value) || null;
-  const cashflow = parseFloat(document.getElementById('week-cashflow').value) || 0;
-
-  if (!datum || isNaN(waarde)) { showToast('Vul datum en waarde in.', 'error'); return; }
-
-  // Posities verzamelen
-  const rijen = document.getElementById('posities-lijst')?.children || [];
-  const posities = [];
-  for (const rij of rijen) {
-    const inputs = rij.querySelectorAll('input');
-    if (inputs.length >= 2 && inputs[0].value.trim()) {
-      posities.push({
-        naam: inputs[0].value.trim(),
-        waarde: parseFloat(inputs[1].value) || 0,
-        pct: parseFloat(inputs[2].value) || 0,
-        weekRendement: parseFloat(inputs[3].value) || 0
-      });
-    }
-  }
-
-  const week = {
-    datum, totaalWaarde: waarde,
-    benchmarkWaarde: benchmark,
-    cashflow, posities,
-    ingevoerdDoor: currentUserData.displayName,
-    aangemaakt: Date.now()
-  };
-
-  if (DEMO_MODE) {
-    week.id = 'week_' + Date.now();
-    demoStore.portfolioWeken.push(week);
-    demoStore.portfolioWeken.sort((a,b) => a.datum.localeCompare(b.datum));
-    showToast('Week opgeslagen!');
-    closeModal();
-    navigateTo('portfolio');
-    return;
-  }
-
-  db.collection('portfolioWeken').add(week)
-    .then(() => {
-      showToast('Week opgeslagen!');
-      closeModal();
-      navigateTo('portfolio');
-    })
-    .catch(e => showToast('Fout: ' + e.message, 'error'));
-}
-
-function deleteWeek(id) {
-  showConfirm('Weekdata verwijderen?', () => { _deleteWeek(id); });
-}
-function _deleteWeek(id) {
-  if (DEMO_MODE) {
-    demoStore.portfolioWeken = demoStore.portfolioWeken.filter(w => (w.firestoreId || w.id) !== id);
-    navigateTo('portfolio');
-    return;
-  }
-  db.collection('portfolioWeken').doc(id).delete()
-    .then(() => { showToast('Week verwijderd.', 'info'); navigateTo('portfolio'); })
-    .catch(e => showToast('Fout: ' + e.message, 'error'));
-}
-
-// ─── APP INSTELLINGEN HELPERS ─────────────────────────────────────────────────
-
-
-function selectMoneyman(uid) {
-  demoStore.moneyManUid = uid || null;
+function selectRolDrager(sleutel, uid) {
+  demoStore[sleutel] = uid || null;
   if (!DEMO_MODE) {
-    db.collection('settings').doc('app').set({ moneyManUid: uid || null }, { merge: true });
+    db.collection('settings').doc('app').set({ [sleutel]: uid || null }, { merge: true });
   }
+  const { label, emoji } = ROL_TITELS[sleutel];
   if (uid) {
     const user = Object.values(demoStore.users).find(u => (u.uid || u.username) === uid);
-    showToast('💰 ' + (user ? user.displayName : 'Gebruiker') + ' is nu de Moneyman!');
+    showToast(`${emoji} ${user ? user.displayName : 'Gebruiker'} is nu ${label}!`);
   } else {
-    showToast('Moneyman gedeselecteerd.', 'info');
+    showToast(`${label} gedeselecteerd.`, 'info');
   }
   navigateTo('gebruikersbeheer');
 }
@@ -2634,18 +2125,6 @@ function toggleAppInstelling(sleutel, waarde) {
   renderSidebar();
 }
 
-function slaPortfolioInstellingenOp() {
-  const kapitaal = parseFloat(document.getElementById('inst-kapitaal')?.value) || 0;
-  const rente = parseFloat(document.getElementById('inst-rente')?.value) || 0.025;
-  demoStore.portfolioInstellingen.startKapitaal = kapitaal;
-  demoStore.portfolioInstellingen.risicoVrijRente = rente;
-  if (!DEMO_MODE) {
-    db.collection('settings').doc('app').set({
-      portfolioInstellingen: demoStore.portfolioInstellingen
-    }, { merge: true });
-  }
-  showToast('Instellingen opgeslagen!');
-}
 
 // ─── PAGE: ADMIN DOCS ────────────────────────────────────────────────────────
 
@@ -2841,26 +2320,24 @@ function renderGebruikersbeheer(el) {
           <div class="toggle-track"></div>
           <span>👥 Introperiode actief</span>
         </label>
-        <label class="toggle-switch">
-          <input type="checkbox" ${demoStore.competitieActief ? 'checked' : ''} onchange="toggleAppInstelling('competitieActief', this.checked)">
-          <div class="toggle-track"></div>
-          <span>📈 Beleggingscompetitie actief</span>
-        </label>
       </div>
-      <div style="padding-top:16px;border-top:1px solid var(--grijs);display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <div style="font-size:13px;font-weight:600;color:var(--zwart);">💰 Moneyman (Penningmeester)</div>
-        <select id="moneyman-select" onchange="selectMoneyman(this.value)"
-          style="padding:8px 12px;border:1.5px solid var(--grijs);border-radius:4px;font-family:'Inter',sans-serif;font-size:13px;min-width:200px;">
-          <option value="">— Niemand geselecteerd —</option>
-          ${Object.values(demoStore.users).map(u =>
-            `<option value="${u.uid || u.username}" ${demoStore.moneyManUid === (u.uid || u.username) ? 'selected' : ''}>${u.displayName} (@${u.username || u.email.replace('@borsa.intern','')})</option>`
-          ).join('')}
-        </select>
-        ${demoStore.moneyManUid ? `
-        <span style="color:var(--groen);font-size:20px;" title="Moneyman ingesteld">✅</span>
-        <button class="btn btn-outline btn-sm" onclick="selectMoneyman('')">Deselecteren</button>
-        ` : ''}
-        <div style="font-size:12px;color:var(--grijs-donker);">Alleen de Moneyman kan weekdata invoeren en portfolio-instellingen aanpassen.</div>
+      <div style="padding-top:16px;border-top:1px solid var(--grijs);display:flex;gap:24px;flex-wrap:wrap;">
+        ${['moneyManUid', 'praesesUid', 'smQueenUid'].map(sleutel => {
+          const { label, emoji } = ROL_TITELS[sleutel];
+          const huidigeUid = demoStore[sleutel];
+          return `
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div style="font-size:13px;font-weight:600;color:var(--zwart);">${emoji} ${label}</div>
+          <select id="rol-select-${sleutel}" onchange="selectRolDrager('${sleutel}', this.value)"
+            style="padding:8px 12px;border:1.5px solid var(--grijs);border-radius:4px;font-family:'Inter',sans-serif;font-size:13px;min-width:200px;">
+            <option value="">— Niemand geselecteerd —</option>
+            ${Object.values(demoStore.users).map(u =>
+              `<option value="${u.uid || u.username}" ${huidigeUid === (u.uid || u.username) ? 'selected' : ''}>${u.displayName} (@${u.username || u.email.replace('@borsa.intern','')})</option>`
+            ).join('')}
+          </select>
+          ${huidigeUid ? `<button class="btn btn-outline btn-sm" onclick="selectRolDrager('${sleutel}', '')">Deselecteren</button>` : ''}
+        </div>`;
+        }).join('')}
       </div>
     </div>
     <div class="card" style="overflow-x:auto;">
@@ -2911,12 +2388,14 @@ function renderGebruikersbeheer(el) {
     });
     tbody.innerHTML = rows.join('');
 
-    // Update moneyman dropdown met echte Firestore users
-    const mmSelect = document.getElementById('moneyman-select');
-    if (mmSelect) {
-      mmSelect.innerHTML = '<option value="">— Niemand geselecteerd —</option>' +
-        gebruikers.map(u => `<option value="${u.uid}" ${demoStore.moneyManUid === u.uid ? 'selected' : ''}>${u.displayName} (@${u.username || u.email.replace('@borsa.intern','')})</option>`).join('');
-    }
+    // Update rol-dropdowns met echte Firestore users
+    ['moneyManUid', 'praesesUid', 'smQueenUid'].forEach(sleutel => {
+      const select = document.getElementById('rol-select-' + sleutel);
+      if (select) {
+        select.innerHTML = '<option value="">— Niemand geselecteerd —</option>' +
+          gebruikers.map(u => `<option value="${u.uid}" ${demoStore[sleutel] === u.uid ? 'selected' : ''}>${u.displayName} (@${u.username || u.email.replace('@borsa.intern','')})</option>`).join('');
+      }
+    });
   }).catch(e => {
     const tbody = document.getElementById('users-tbody');
     if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="color:var(--oranje);padding:20px;">Fout bij laden: ${e.message}</td></tr>`;
