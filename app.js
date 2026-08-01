@@ -954,7 +954,12 @@ function saveBewerkFile(collection, fid) {
 
 
 function renderPlanning(el) {
-  const rows = demoStore.planning;
+  const rows = [...demoStore.planning].sort((a, b) => {
+    if (!a.datum && !b.datum) return 0;
+    if (!a.datum) return 1;
+    if (!b.datum) return -1;
+    return a.datum.localeCompare(b.datum);
+  });
   const open = demoStore.planningOpen;
   const canEditCells = isAdmin() || open;
 
@@ -1082,8 +1087,13 @@ function savePlanningCell(id, field, value) {
   }
   const row = demoStore.planning.find(r => r.id === id);
   if (row) row[field] = value;
-  if (!DEMO_MODE) db.collection('planning').doc(id).update({ [field]: value }).then(() => showToast('Planning opgeslagen!'));
-  else showToast('Planning opgeslagen!');
+
+  const afronden = () => {
+    showToast('Planning opgeslagen!');
+    if (field === 'datum') navigateTo('planning');
+  };
+  if (!DEMO_MODE) db.collection('planning').doc(id).update({ [field]: value }).then(afronden);
+  else afronden();
 }
 function togglePlanning(checkbox) {
   demoStore.planningOpen = checkbox.checked;
