@@ -612,6 +612,7 @@
 
   .comment-input-row input {
     flex: 1;
+    min-width: 0;
     padding: 9px 10px;
     border: 1.5px solid var(--grijs);
     border-radius: 3px;

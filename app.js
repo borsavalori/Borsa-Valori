@@ -1000,7 +1000,7 @@ function renderPlanning(el) {
   `;
 }
 
-const TYPE_AVOND_OPTIES = ['beleggingsavond', 'borrelavond', 'Borsa activiteit', 'B&R activiteit'];
+const TYPE_AVOND_OPTIES = ['beleggingsavond', 'borrelavond', 'Borsa activiteit', 'B&R activiteit', 'Introborrel', 'Intro Activiteit'];
 
 function planningRowHTML(row, canEditCells) {
   const adminOnly = isAdmin();
@@ -1363,12 +1363,10 @@ function laadPotis() {
         nogTeLaden.forEach(k => {
           const commentsEl = document.getElementById('comments-' + k.id);
           if (commentsEl && demoStore.comments[k.id].length > 0) {
-            commentsEl.innerHTML = demoStore.comments[k.id].map(c => `
-              <div class="comment-item">
-                <div class="comment-author">${escapeHtml(c.author)} <span class="comment-role-badge">${escapeHtml(c.rol)}</span></div>
-                <div>${escapeHtml(c.tekst)}</div>
-              </div>`).join('');
+            commentsEl.innerHTML = demoStore.comments[k.id].map(c => commentItemHTML(k.id, c)).join('');
           }
+          const teller = document.querySelector(`#kcard-${k.id} .comment-section h4`);
+          if (teller) teller.textContent = `💬 Reacties (${demoStore.comments[k.id].length})`;
         });
       });
     }
@@ -1385,13 +1383,45 @@ const STEM_OPTIES = [
   { key: 'niet-genoeg', label: 'Niet genoeg gesproken', cls: 'active-niet-genoeg' }
 ];
 
+function magCommentVerwijderen(c) {
+  return isAdmin() || c.author === currentUserData.displayName;
+}
+
+function commentItemHTML(kandidaatId, c) {
+  const magVerwijderen = magCommentVerwijderen(c);
+  return `
+    <div class="comment-item" id="comment-${c.id}">
+      <div class="comment-author">
+        ${escapeHtml(c.author)} <span class="comment-role-badge">${escapeHtml(c.rol)}</span>
+        ${magVerwijderen ? `<button class="btn btn-danger btn-sm" style="float:right;padding:1px 7px;font-size:11px;" onclick="deleteComment('${kandidaatId}','${c.id}')">✕</button>` : ''}
+      </div>
+      <div>${escapeHtml(c.tekst)}</div>
+    </div>`;
+}
+
+function deleteComment(kandidaatId, commentId) {
+  showConfirm('Deze reactie wordt verwijderd.', () => {
+    const lijst = demoStore.comments[kandidaatId] || [];
+    const c = lijst.find(x => x.id === commentId);
+    if (!c || !magCommentVerwijderen(c)) return;
+    demoStore.comments[kandidaatId] = lijst.filter(x => x.id !== commentId);
+    document.getElementById('comment-' + commentId)?.remove();
+    const teller = document.querySelector(`#kcard-${kandidaatId} .comment-section h4`);
+    if (teller) teller.textContent = `💬 Reacties (${demoStore.comments[kandidaatId].length})`;
+
+    if (!DEMO_MODE) {
+      db.collection('kandidaten').doc(kandidaatId).collection('comments')
+        .where('id', '==', commentId).get()
+        .then(snap => Promise.all(snap.docs.map(d => d.ref.delete())))
+        .catch(e => alert('❌ Verwijderen mislukt: ' + e.message));
+    }
+  });
+}
+
 function kandidaatCardHTML(k) {
   const comments = (demoStore.comments[k.id] || []);
-  const commentsHTML = comments.map(c => `
-    <div class="comment-item">
-      <div class="comment-author">${escapeHtml(c.author)} <span class="comment-role-badge">${escapeHtml(c.rol)}</span></div>
-      <div>${escapeHtml(c.tekst)}</div>
-    </div>`).join('') || '<div style="font-size:12px;color:#aaa;padding:4px 0;">Nog geen reacties.</div>';
+  const commentsHTML = comments.map(c => commentItemHTML(k.id, c)).join('')
+    || '<div style="font-size:12px;color:#aaa;padding:4px 0;">Nog geen reacties.</div>';
 
   const geslacht = k.geslacht === 'M' ? '♂' : k.geslacht === 'V' ? '♀' : '⚧';
 
@@ -1725,11 +1755,14 @@ function addComment(kandidaatId) {
   input.value = '';
   const commentsEl = document.getElementById('comments-' + kandidaatId);
   if (commentsEl) {
+    const placeholder = commentsEl.querySelector(':scope > div:not(.comment-item)');
+    if (placeholder) placeholder.remove();
     const div = document.createElement('div');
-    div.className = 'comment-item';
-    div.innerHTML = `<div class="comment-author">${comment.author} <span class="comment-role-badge">${comment.rol}</span></div><div>${comment.tekst}</div>`;
-    commentsEl.appendChild(div);
+    div.innerHTML = commentItemHTML(kandidaatId, comment);
+    commentsEl.appendChild(div.firstElementChild);
   }
+  const teller = document.querySelector(`#kcard-${kandidaatId} .comment-section h4`);
+  if (teller) teller.textContent = `💬 Reacties (${demoStore.comments[kandidaatId].length})`;
 }
 
 // ─── PAGE: BONNETJES ────────────────────────────────────────────────────────
