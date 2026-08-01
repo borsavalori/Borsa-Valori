@@ -629,29 +629,6 @@
 
   .comment-input-row input:focus { outline: none; border-color: var(--groen); }
 
-  /* ─── BUDGET ─── */
-  .receipt-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    background: var(--wit);
-    border-radius: 3px;
-    margin-bottom: 8px;
-    border-left: 3px solid var(--goud);
-    font-size: 13px;
-  }
-
-  .receipt-item .receipt-user { font-weight: 700; color: var(--groen); min-width: 120px; }
-  .receipt-item .receipt-date { color: var(--grijs-donker); min-width: 100px; }
-  .receipt-item .receipt-amount { font-weight: 700; color: var(--oranje); min-width: 80px; }
-  .receipt-item .receipt-thumb img {
-    width: 40px; height: 40px;
-    border-radius: 3px;
-    object-fit: cover;
-    border: 1px solid var(--grijs);
-  }
-
   /* ─── ALERTS ─── */
   .alert {
     padding: 12px 16px;
@@ -958,15 +935,6 @@
   .stem-summary span { font-weight: 700; }
 
   .hidden { display: none !important; }
-
-  /* ─── BONNETJE UPLOAD ─── */
-  .bon-form {
-    background: var(--wit);
-    border: 1px solid var(--grijs);
-    border-radius: 4px;
-    padding: 24px;
-    margin-bottom: 24px;
-  }
 
   /* ─── RESPONSIVE TWEAKS ─── */
   /* (mobile styles staan al in de @media (max-width: 768px) sectie hierboven) */

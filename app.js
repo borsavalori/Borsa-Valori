@@ -38,7 +38,6 @@ let demoStore = {
   moneyManUid: null,
   praesesUid: null,
   smQueenUid: null,
-  bonnetjes: [],
   adminProjects: {},
   reiscoProjects: {},
   comments: {},
@@ -368,7 +367,6 @@ function navigateTo(page) {
     planning: renderPlanning,
     leden: renderLeden,
     kandidaten: renderKandidaten,
-    bonnetjes: renderBonnetjes,
     'admin-board': renderAdminBoard,
     'reisco-board': renderReiscoBoard,
     'admin-docs': renderAdminDocs,
@@ -1762,97 +1760,6 @@ function addComment(kandidaatId) {
   if (teller) teller.textContent = `💬 Reacties (${demoStore.comments[kandidaatId].length})`;
 }
 
-// ─── PAGE: BONNETJES ────────────────────────────────────────────────────────
-
-function renderBonnetjes(el) {
-  el.innerHTML = `
-    <div class="page-header">
-      <div><h2>Bonnetje Indienen</h2><p>Upload hier de bon voor jouw hosting-kosten.</p></div>
-    </div>
-    <div class="bon-form">
-      <h3 style="font-family:'DM Serif Display',serif;color:var(--groen);font-size:17px;margin-bottom:16px;">Nieuwe bon invoeren</h3>
-      <div class="form-group"><label>Datum van hosten</label><input type="date" id="bon-datum"></div>
-      <div class="form-group"><label>Totaalbedrag (€)</label><input type="number" id="bon-bedrag" step="0.01" placeholder="0.00"></div>
-      <div class="form-group"><label>Foto van bon</label><input type="file" id="bon-foto" accept="image/*"></div>
-      <button class="btn btn-primary" onclick="submitBonnetje()">Indienen</button>
-    </div>
-    <div class="card">
-      <div class="card-header"><h3>Mijn Ingediende Bonnetjes</h3></div>
-      <div id="mijn-bonnetjes">
-        ${demoStore.bonnetjes.filter(b => b.userId === currentUserData.uid).length === 0
-          ? `<div class="empty-state"><div class="empty-icon">🧾</div><p>Nog geen bonnetjes ingediend.</p></div>`
-          : demoStore.bonnetjes.filter(b => b.userId === currentUserData.uid).map(bonHTML).join('')}
-      </div>
-    </div>
-  `;
-}
-
-function bonHTML(b) {
-  return `<div class="receipt-item">
-    <div class="receipt-user">${b.naam}</div>
-    <div class="receipt-date">📅 ${b.datum}</div>
-    <div class="receipt-amount">€ ${parseFloat(b.bedrag).toFixed(2)}</div>
-    ${b.fotoUrl ? `<div class="receipt-thumb"><img src="${b.fotoUrl}" alt="bon"></div>` : ''}
-  </div>`;
-}
-
-function submitBonnetje() {
-  const datum = document.getElementById('bon-datum').value;
-  const bedrag = document.getElementById('bon-bedrag').value;
-  const fotoFile = document.getElementById('bon-foto').files[0];
-
-  if (!datum || !bedrag) { alert('Datum en bedrag zijn verplicht.'); return; }
-
-  const afronden = (fotoUrl) => {
-    const bon = {
-      id: 'bon_' + Date.now(),
-      userId: currentUserData.uid,
-      naam: currentUserData.displayName,
-      datum, bedrag,
-      fotoUrl,
-      aangemaakt: new Date().toISOString()
-    };
-
-    demoStore.bonnetjes.push(bon);
-
-    if (!DEMO_MODE) {
-      db.collection('bonnetjes').doc(bon.id).set(bon);
-    }
-
-    navigateTo('bonnetjes');
-    showToast('Bonnetje ingediend!');
-  };
-
-  if (!fotoFile) { afronden(null); return; }
-
-  // Comprimeer afbeelding naar max 800px breed en sla op als base64
-  const maxKB = 400;
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const img = new Image();
-    img.onload = function() {
-      const canvas = document.createElement('canvas');
-      const maxW = 800;
-      const scale = Math.min(1, maxW / img.width);
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-      let quality = 0.8;
-      let dataUrl = canvas.toDataURL('image/jpeg', quality);
-      while (dataUrl.length > maxKB * 1024 * 1.37 && quality > 0.3) {
-        quality -= 0.1;
-        dataUrl = canvas.toDataURL('image/jpeg', quality);
-      }
-
-      afronden(dataUrl);
-    };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(fotoFile);
-}
-
 // ─── PAGE: KANBAN BOARDS ────────────────────────────────────────────────────
 
 function renderKanbanPage(el, boardKey, title, desc) {
@@ -2251,11 +2158,14 @@ function renderBudgetRijen(rijen) {
         </div>
       </td>
       <td>
-        <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1.5px solid var(--grijs);border-radius:3px;font-size:12px;font-family:'Inter',sans-serif;background:#fafaf8;">
-          📷 ${heeftBon ? 'Vervangen' : 'Foto uploaden'}
-          <input type="file" accept="image/*" capture="environment" style="display:none;"
-            onchange="uploadBonFoto('${rowId}', this)">
-        </label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1.5px solid var(--grijs);border-radius:3px;font-size:12px;font-family:'Inter',sans-serif;background:#fafaf8;">
+            📷 ${heeftBon ? 'Vervangen' : 'Foto uploaden'}
+            <input type="file" accept="image/*" capture="environment" style="display:none;"
+              onchange="uploadBonFoto('${rowId}', this)">
+          </label>
+          <button type="button" class="btn btn-outline btn-sm" style="padding:5px 10px;font-size:12px;" title="Plak een gekopieerde foto (bv. uit WhatsApp)" onclick="plakBonFoto('${rowId}')">📋 Plakken</button>
+        </div>
       </td>
       <td>
         ${heeftBon
@@ -2282,7 +2192,10 @@ function saveBudgetVeld(planningId, veld, waarde) {
 function uploadBonFoto(planningId, input) {
   const file = input.files[0];
   if (!file) return;
+  verwerkBonFoto(planningId, file);
+}
 
+function verwerkBonFoto(planningId, file) {
   // Comprimeer afbeelding naar max 800px breed en sla op als base64
   const maxKB = 400;
   const reader = new FileReader();
@@ -2313,6 +2226,25 @@ function uploadBonFoto(planningId, input) {
     img.src = e.target.result;
   };
   reader.readAsDataURL(file);
+}
+
+function plakBonFoto(planningId) {
+  if (!navigator.clipboard || !navigator.clipboard.read) {
+    showToast('Plakken vanuit klembord wordt niet ondersteund in deze browser.', 'error');
+    return;
+  }
+  navigator.clipboard.read().then(items => {
+    for (const item of items) {
+      const type = item.types.find(t => t.startsWith('image/'));
+      if (type) {
+        item.getType(type).then(blob => verwerkBonFoto(planningId, blob));
+        return;
+      }
+    }
+    showToast('Geen afbeelding gevonden in klembord. Kopieer eerst een foto (bv. uit WhatsApp).', 'error');
+  }).catch(() => {
+    showToast('Kon klembord niet lezen. Geef de browser toestemming en probeer opnieuw.', 'error');
+  });
 }
 
 // ─── PAGE: GEBRUIKERSBEHEER ──────────────────────────────────────────────────
