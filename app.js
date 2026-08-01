@@ -2164,7 +2164,11 @@ function renderBudgetRijen(rijen) {
             <input type="file" accept="image/*" capture="environment" style="display:none;"
               onchange="uploadBonFoto('${rowId}', this)">
           </label>
-          <button type="button" class="btn btn-outline btn-sm" style="padding:5px 10px;font-size:12px;" title="Plak een gekopieerde foto (bv. uit WhatsApp)" onclick="plakBonFoto('${rowId}')">📋 Plakken</button>
+          <div class="bon-paste-zone" contenteditable="true" title="Klik hier en druk Ctrl+V (Windows) of Cmd+V (Mac) om een gekopieerde foto te plakken"
+            style="cursor:text;display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1.5px dashed var(--grijs-donker);border-radius:3px;font-size:12px;font-family:'Inter',sans-serif;color:var(--grijs-donker);outline:none;white-space:nowrap;"
+            onpaste="plakBonFoto('${rowId}', event); return false;"
+            onfocus="this.style.borderColor='var(--groen)';this.style.color='var(--groen)';"
+            onblur="this.style.borderColor='var(--grijs-donker)';this.style.color='var(--grijs-donker)';this.innerText='📋 Klik + plak';">📋 Klik + plak</div>
         </div>
       </td>
       <td>
@@ -2228,23 +2232,26 @@ function verwerkBonFoto(planningId, file) {
   reader.readAsDataURL(file);
 }
 
-function plakBonFoto(planningId) {
-  if (!navigator.clipboard || !navigator.clipboard.read) {
-    showToast('Plakken vanuit klembord wordt niet ondersteund in deze browser.', 'error');
+function plakBonFoto(planningId, event) {
+  event.preventDefault();
+  const target = event.currentTarget;
+
+  const items = (event.clipboardData && (event.clipboardData.items || event.clipboardData.files)) || [];
+  let file = null;
+  for (const item of items) {
+    if (item.type && item.type.startsWith('image/')) {
+      file = item.getAsFile ? item.getAsFile() : item;
+      break;
+    }
+  }
+
+  if (target) target.innerText = '📋 Klik + plak';
+
+  if (!file) {
+    showToast('Geen afbeelding gevonden. Kopieer eerst een foto (bv. uit WhatsApp) en plak opnieuw.', 'error');
     return;
   }
-  navigator.clipboard.read().then(items => {
-    for (const item of items) {
-      const type = item.types.find(t => t.startsWith('image/'));
-      if (type) {
-        item.getType(type).then(blob => verwerkBonFoto(planningId, blob));
-        return;
-      }
-    }
-    showToast('Geen afbeelding gevonden in klembord. Kopieer eerst een foto (bv. uit WhatsApp).', 'error');
-  }).catch(() => {
-    showToast('Kon klembord niet lezen. Geef de browser toestemming en probeer opnieuw.', 'error');
-  });
+  verwerkBonFoto(planningId, file);
 }
 
 // ─── PAGE: GEBRUIKERSBEHEER ──────────────────────────────────────────────────
