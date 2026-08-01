@@ -2110,7 +2110,7 @@ function deleteProject(id, boardKey, mapNaam) {
 }
 
 const ROL_TITELS = {
-  moneyManUid: { label: 'Moneyman / Moneywoman', emoji: '💸' },
+  moneyManUid: { label: 'Moneyman/ woman', emoji: '💸' },
   praesesUid: { label: 'Praeses', emoji: '👑' },
   smQueenUid: { label: 'Social Media Queen', emoji: '📸' }
 };
@@ -2327,7 +2327,7 @@ function renderGebruikersbeheer(el) {
     <!-- App Instellingen -->
     <div class="card" style="margin-bottom:20px;">
       <div class="card-header"><h3>⚙️ App Instellingen</h3></div>
-      <div style="display:flex;gap:24px;flex-wrap:nowrap;overflow-x:auto;">
+      <div style="display:flex;gap:16px;flex-wrap:wrap;">
         ${['moneyManUid', 'praesesUid', 'smQueenUid'].map(sleutel => {
           const { label, emoji } = ROL_TITELS[sleutel];
           const huidigeUid = demoStore[sleutel];
@@ -2336,10 +2336,10 @@ function renderGebruikersbeheer(el) {
           <span style="font-size:26px;line-height:1;">${emoji}</span>
           <span style="font-size:13px;font-weight:600;color:var(--zwart);">${label}</span>
           <select id="rol-select-${sleutel}" onchange="selectRolDrager('${sleutel}', this.value)"
-            style="padding:8px 12px;border:1.5px solid var(--grijs);border-radius:4px;font-family:'Inter',sans-serif;font-size:13px;min-width:170px;">
-            <option value="">— Niemand geselecteerd —</option>
+            style="padding:8px 12px;border:1.5px solid var(--grijs);border-radius:4px;font-family:'Inter',sans-serif;font-size:13px;width:110px;">
+            <option value="">—</option>
             ${Object.values(demoStore.users).map(u =>
-              `<option value="${u.uid || u.username}" ${huidigeUid === (u.uid || u.username) ? 'selected' : ''}>${u.displayName} (@${u.username || u.email.replace('@borsa.intern','')})</option>`
+              `<option value="${u.uid || u.username}" ${huidigeUid === (u.uid || u.username) ? 'selected' : ''}>${u.username || u.email.replace('@borsa.intern','')}</option>`
             ).join('')}
           </select>
           ${huidigeUid ? `<button class="btn btn-danger btn-sm" title="Deselecteren" style="padding:3px 8px;font-size:12px;" onclick="selectRolDrager('${sleutel}', '')">✕</button>` : ''}
@@ -2399,8 +2399,8 @@ function renderGebruikersbeheer(el) {
     ['moneyManUid', 'praesesUid', 'smQueenUid'].forEach(sleutel => {
       const select = document.getElementById('rol-select-' + sleutel);
       if (select) {
-        select.innerHTML = '<option value="">— Niemand geselecteerd —</option>' +
-          gebruikers.map(u => `<option value="${u.uid}" ${demoStore[sleutel] === u.uid ? 'selected' : ''}>${u.displayName} (@${u.username || u.email.replace('@borsa.intern','')})</option>`).join('');
+        select.innerHTML = '<option value="">—</option>' +
+          gebruikers.map(u => `<option value="${u.uid}" ${demoStore[sleutel] === u.uid ? 'selected' : ''}>${u.username || u.email.replace('@borsa.intern','')}</option>`).join('');
       }
     });
   }).catch(e => {
